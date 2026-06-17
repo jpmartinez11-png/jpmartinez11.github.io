@@ -1,0 +1,910 @@
+<!doctype html>
+<html lang="es">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width,initial-scale=1" />
+	<title>CONSTRUCTORA ANDINA S.A. - Sistema Contable</title>
+	<style>
+		:root{
+			--bg:#f0f4f8; --header:#1a365d; --accent:#2b6cb0; --muted:#98a8bf;
+			--warn:#ffc107; --danger:#e53e3e; --table-head:#1a365d;
+			--row-alt:#f7fafc; --success:#2f855a;
+			font-size:14px;
+		}
+		html,body{height:100%;margin:0;background:var(--bg);font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial}
+		header{background:var(--header);color:#fff;padding:18px 24px;display:flex;align-items:center;justify-content:space-between}
+		header h1{font-size:18px;margin:0}
+		.container{padding:18px}
+		.tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+		.tab{background:#fff;border:1px solid rgba(0,0,0,0.06);padding:8px 12px;border-radius:6px;cursor:pointer;color:var(--header)}
+		.tab.active{background:var(--header);color:#fff}
+		.card{background:#fff;border-radius:8px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,0.06);margin-bottom:12px}
+		.row{display:flex;gap:8px;flex-wrap:wrap}
+		label{font-size:12px;color:var(--muted)}
+		input[type="text"],input[type="number"],select,input[type="date"]{padding:8px;border:1px solid #dbe9f7;border-radius:6px;min-width:120px}
+		table{width:100%;border-collapse:collapse;margin-top:8px}
+		th,td{border:1px solid #e6eef6;padding:8px;text-align:left}
+		th{background:var(--table-head);color:#fff}
+		tbody tr:nth-child(even){background:var(--row-alt)}
+		.small{font-size:12px}
+		.right{text-align:right}
+		.muted{color:var(--muted)}
+		.warn{background:#fff3cd;padding:8px;border-radius:6px;border:1px solid #ffc107;margin:4px 0;display:inline-block}
+		.danger{color:var(--danger)}
+		.success{color:var(--success)}
+		.controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+		button{background:var(--accent);color:#fff;border:none;padding:8px 12px;border-radius:6px;cursor:pointer}
+		button.ghost{background:#fff;border:1px solid #cfe4ff;color:var(--header)}
+		.summary{display:flex;gap:12px;flex-wrap:wrap}
+		.box{background:#fff;padding:8px;border-radius:6px;border:1px solid #e6eef6;font-size:13px}
+		.negative{color:var(--danger)}
+		.asiento-ref{background:#f0f7ff;font-style:italic;font-size:12px;color:#4a6fa5;padding:4px 8px!important}
+		.t-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}
+		.t-card{background:#fff;border:1px solid #e6eef6;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.06)}
+		.t-title{background:var(--header);color:#fff;padding:8px 12px;font-weight:700;text-align:center}
+		.t-body{display:grid;grid-template-columns:1fr 1fr}
+		.t-debe{background:#e8f4fd;padding:6px}
+		.t-haber{background:#fde8e8;padding:6px}
+		.t-col-head{font-weight:700;font-size:12px;border-bottom:1px solid #d0d0d0;padding-bottom:4px;margin-bottom:4px}
+		.t-mov{display:flex;justify-content:space-between;font-size:12px;padding:2px 0;border-bottom:1px solid rgba(0,0,0,0.05)}
+		.t-totales{display:grid;grid-template-columns:1fr 1fr;border-top:2px solid #e6eef6}
+		.t-total-cell{padding:6px 8px;font-weight:700;font-size:12px}
+		.t-saldo{padding:8px;text-align:center;font-weight:800;font-size:13px}
+		.saldo-deudor{background:#fff7cc;color:#1a365d}
+		.saldo-acreedor{background:#fff0f0;color:var(--danger)}
+		.saldo-cero{background:#e6ffed;color:var(--success)}
+		@media(max-width:900px){.t-grid{grid-template-columns:1fr}}
+	</style>
+</head>
+<body>
+	<header>
+		<div>
+			<h1>CONSTRUCTORA ANDINA S.A. — Sistema contable (NIIF 15)</h1>
+			<div class="muted small">Reconocimiento por porcentaje de avance — Método porcentaje de terminación</div>
+		</div>
+		<div style="text-align:right">
+			<div class="small">Usuario: Administrador</div>
+			<div class="small muted">Fecha: <span id="today"></span></div>
+		</div>
+	</header>
+	<div class="container">
+		<div class="tabs card" id="tabs"></div>
+		<div id="content"></div>
+		<div class="controls">
+			<button id="calcAll">⟳ Calcular Todo</button>
+			<button id="exportJson" class="ghost">↓ Exportar JSON</button>
+			<input id="importFile" type="file" accept="application/json" style="display:none" />
+			<button id="importJson" class="ghost">↑ Importar JSON</button>
+		</div>
+		<div id="warnings" style="margin-top:12px"></div>
+	</div>
+
+<script>
+// ============================================================
+// UTILIDADES
+// ============================================================
+const fmt = new Intl.NumberFormat('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+function money(v){const n=Number(v||0);const sign=n<0?'-':'';return sign+'$'+fmt.format(Math.abs(n));}
+function n(v){return Number(v||0);}
+function el(q){return document.querySelector(q);}
+function eAll(q){return document.querySelectorAll(q);}
+function fmtDate(iso){if(!iso) return ''; const parts=iso.split('-'); return parts[2]+'/'+parts[1]+'/'+parts[0];}
+
+// ============================================================
+// ESTADO GLOBAL
+// ============================================================
+const state = {
+	project:{
+		name:'Construcción de Vivienda de Interés Social',
+		client:'Promotora Hábitat Seguro S.A.',
+		contractValue:600000,
+		advanceReceived:80000,
+		numAdvances:3,
+		advances:[
+			{pct:45, date:'2026-04-01'},
+			{pct:25, date:'2026-06-01'},
+			{pct:30, date:'2026-08-01'}
+		],
+		retenciones:{rf_bienes:0.02,rf_servicios:0.03,iva_bienes:0.30,iva_servicios:0.70,iva_materiales:0.05,iva_cif:0.15}
+	},
+	rubros:[
+		{code:'mat001',desc:'Cemento',type:'MD',unit:'qq',qty:2500,price:10.50},
+		{code:'mat002',desc:'Varilla corrugada',type:'MD',unit:'qq',qty:45,price:1650},
+		{code:'mat003',desc:'Bloques',type:'MD',unit:'unidad',qty:110000,price:0.55},
+		{code:'mat004',desc:'Arena',type:'MD',unit:'m3',qty:800,price:28},
+		{code:'mat005',desc:'Tierra',type:'MD',unit:'m3',qty:650,price:32},
+		{code:'cif001',desc:'Maquinaria',type:'CIF',unit:'uso',qty:1,price:70000},
+		{code:'cif002',desc:'Supervisor técnico',type:'CIF',unit:'hora',qty:1,price:28000},
+		{code:'cif003',desc:'Seguridad y servicio',type:'CIF',unit:'contrato',qty:1,price:16500}
+	],
+	employees:[
+		{name:'Paredes',role:'Maestro',type:'MOD',salary:38000},
+		{name:'Luis',role:'Albañil',type:'MOD',salary:32000},
+		{name:'Marco',role:'Albañil',type:'MOD',salary:32000},
+		{name:'Jorge',role:'Ayudante',type:'MOD',salary:24000},
+		{name:'David',role:'Ayudante',type:'MOD',salary:18000}
+	],
+	report:{operationalExpenses:0}
+};
+
+// ============================================================
+// CÁLCULOS CENTRALES
+// ============================================================
+function calcEmployee(e){
+	const aporte_personal = e.salary*0.0945;
+	const neto = e.salary - aporte_personal;
+	const dec3 = e.salary/12;
+	const dec4 = 40.17;
+	const vac = e.salary/24;
+	const fondo = e.salary*0.0833;
+	const aporte_pat = e.salary*0.1115;
+	const total_ben = dec3+dec4+vac+fondo+aporte_pat;
+	const costo = e.salary + total_ben;
+	return {aporte_personal,neto,dec3,dec4,vac,fondo,aporte_pat,total_ben,costo};
+}
+
+function getTotalsByType(){
+	const totals = {MD:0,MOD:0,CIF:0};
+	state.rubros.forEach(r=>{ const t=n(r.qty)*n(r.price); totals[r.type]=(totals[r.type]||0)+t; });
+	// Agregar nómina por tipo
+	const payroll = {MOD:0,CIF:0};
+	state.employees.forEach(e=>{ const c=calcEmployee(e).costo; payroll[e.type]=(payroll[e.type]||0)+c; });
+	totals.MOD += payroll.MOD;
+	totals.CIF += payroll.CIF;
+	return totals;
+}
+
+// Genera todos los asientos del libro diario — CORREGIDO
+function generateLedger(){
+	const p = state.project;
+	const ret = p.retenciones;
+	const totals = getTotalsByType();
+	const entries = []; // cada entry: {date, num, ref, items:[{acc, debe?, haber?}]}
+	let asientoNum = 1;
+
+	// ASIENTO 0: Recepción del anticipo
+	if(p.advanceReceived > 0){
+		const fecha = p.advances[0]?.date || '';
+		entries.push({
+			date: fecha, num: asientoNum++,
+			ref: 'Reg: recepción de anticipo del cliente',
+			items:[
+				{acc:'Bancos', debe: p.advanceReceived},
+				{acc:'Anticipo Clientes', haber: p.advanceReceived}
+			]
+		});
+	}
+
+	p.advances.forEach((adv, idx)=>{
+		const pctDecimal = n(adv.pct)/100;
+		const fecha = adv.date;
+		const costos = {
+			MD: totals.MD * pctDecimal,
+			MOD: totals.MOD * pctDecimal,
+			CIF: totals.CIF * pctDecimal
+		};
+		const ivaMD  = parseFloat((costos.MD  * ret.iva_materiales).toFixed(2));
+		const ivaCIF = parseFloat((costos.CIF * ret.iva_cif).toFixed(2));
+		const totalCostos = parseFloat((costos.MD + costos.MOD + costos.CIF).toFixed(2));
+		const valorFact   = parseFloat((p.contractValue * pctDecimal).toFixed(2));
+
+		// Anticipo aplicado solo en primera planilla
+		const anticipoAplicado = idx===0 ? parseFloat(Math.min(p.advanceReceived, valorFact).toFixed(2)) : 0;
+
+		// Retenciones sobre el valor facturado
+		const goodsShare = costos.MD / (costos.MD + costos.MOD + costos.CIF || 1);
+		const rf_b  = parseFloat((valorFact * goodsShare * ret.rf_bienes).toFixed(2));
+		const rf_s  = parseFloat((valorFact * (1-goodsShare) * ret.rf_servicios).toFixed(2));
+		const totalRet = parseFloat((rf_b + rf_s).toFixed(2));
+
+		// Banco recibe: valorFact - anticipo aplicado - retenciones
+		const bancoRecibe = parseFloat((valorFact - anticipoAplicado - totalRet).toFixed(2));
+
+		// ASIENTO 1: Compra de Materiales Directos
+		if(costos.MD > 0){
+			entries.push({date:fecha, num:asientoNum++,
+				ref:`Reg: compra materiales directos — planilla ${idx+1}`,
+				items:[
+					{acc:'Materiales Directos (MD)', debe: parseFloat(costos.MD.toFixed(2))},
+					{acc:'IVA en Compras 5%',        debe: ivaMD},
+					{acc:'Bancos', haber: parseFloat((costos.MD + ivaMD).toFixed(2))}
+				]
+			});
+		}
+
+		// ASIENTO 2: Pago Mano de Obra Directa
+		if(costos.MOD > 0){
+			entries.push({date:fecha, num:asientoNum++,
+				ref:`Reg: pago mano de obra directa — planilla ${idx+1}`,
+				items:[
+					{acc:'Mano de Obra Directa (MOD)', debe: parseFloat(costos.MOD.toFixed(2))},
+					{acc:'Bancos', haber: parseFloat(costos.MOD.toFixed(2))}
+				]
+			});
+		}
+
+		// ASIENTO 3: Compra CIF
+		if(costos.CIF > 0){
+			entries.push({date:fecha, num:asientoNum++,
+				ref:`Reg: compra costos indirectos CIF — planilla ${idx+1}`,
+				items:[
+					{acc:'CIF - Costos Indirectos de Fabricación', debe: parseFloat(costos.CIF.toFixed(2))},
+					{acc:'IVA en Compras 15%', debe: ivaCIF},
+					{acc:'Bancos', haber: parseFloat((costos.CIF + ivaCIF).toFixed(2))}
+				]
+			});
+		}
+
+		// ASIENTO 4: Acumulación en WIP
+		// Debe: Obras en Construcción WIP (solo costos sin IVA)
+		// Haber: MD + MOD + CIF
+		if(totalCostos > 0){
+			entries.push({date:fecha, num:asientoNum++,
+				ref:`Reg: acumulación de costos en WIP — planilla ${idx+1}`,
+				items:[
+					{acc:'Obras en Construcción - WIP', debe: totalCostos},
+					{acc:'Materiales Directos (MD)',          haber: parseFloat(costos.MD.toFixed(2))},
+					{acc:'Mano de Obra Directa (MOD)',        haber: parseFloat(costos.MOD.toFixed(2))},
+					{acc:'CIF - Costos Indirectos de Fabricación', haber: parseFloat(costos.CIF.toFixed(2))}
+				]
+			});
+		}
+
+		// ASIENTO 5: Reconocimiento de ingreso
+		// CORREGIDO: Debe = Bancos (líquido) + Anticipo Clientes (cancelación, avance 1) + Retenciones por cobrar
+		//            Haber = Ingreso por Construcción = valorFact
+		const itemsIngreso = [];
+		if(bancoRecibe > 0)        itemsIngreso.push({acc:'Bancos', debe: bancoRecibe});
+		if(anticipoAplicado > 0)   itemsIngreso.push({acc:'Anticipo Clientes', debe: anticipoAplicado});
+		if(totalRet > 0)           itemsIngreso.push({acc:'Retenciones por cobrar', debe: totalRet});
+		itemsIngreso.push({acc:'Ingreso por Construcción', haber: valorFact});
+		entries.push({date:fecha, num:asientoNum++,
+			ref:`Reg: reconocimiento ingreso planilla ${idx+1} (${adv.pct}% avance)`,
+			items: itemsIngreso
+		});
+
+		// ASIENTO 6: Registro del Costo de Ventas
+		entries.push({date:fecha, num:asientoNum++,
+			ref:`Reg: costo de ventas planilla ${idx+1}`,
+			items:[
+				{acc:'Costo de Ventas', debe: totalCostos},
+				{acc:'Obras en Construcción - WIP', haber: totalCostos}
+			]
+		});
+	});
+
+	return entries;
+}
+
+// ============================================================
+// TABS PRINCIPALES
+// ============================================================
+const PAGES = ['DATOS DEL PROYECTO','PRESUPUESTO DE OBRA','NÓMINA / ROL DE PAGOS','PLANILLAS DE AVANCE','REPORTES'];
+let active = 0;
+
+document.getElementById('today').textContent = new Date().toLocaleDateString('es-EC');
+
+function renderTabs(){
+	const tabs = el('#tabs'); tabs.innerHTML='';
+	PAGES.forEach((t,i)=>{
+		const b=document.createElement('button');
+		b.className='tab'+(i===active?' active':'');
+		b.textContent=t;
+		b.onclick=()=>{active=i;render();};
+		tabs.appendChild(b);
+	});
+}
+
+function render(){
+	renderTabs();
+	el('#warnings').innerHTML='';
+	const c=el('#content'); c.innerHTML='';
+	if(active===0) renderProject(c);
+	if(active===1) renderBudget(c);
+	if(active===2) renderPayroll(c);
+	if(active===3) renderPlanillas(c);
+	if(active===4) renderReports(c);
+}
+
+// ============================================================
+// PÁGINA 1: DATOS DEL PROYECTO
+// ============================================================
+function renderProject(container){
+	const p = state.project;
+	const card = document.createElement('div'); card.className='card';
+	card.innerHTML=`
+		<h3>Datos del Proyecto</h3>
+		<div class="row">
+			<div><label>Nombre del proyecto</label><br><input id="proj_name" type="text" value="${p.name}"></div>
+			<div><label>Cliente</label><br><input id="proj_client" type="text" value="${p.client}"></div>
+			<div><label>Valor del contrato sin IVA</label><br><input id="proj_value" type="number" step="0.01" value="${p.contractValue}"></div>
+			<div><label>Anticipo recibido</label><br><input id="proj_anticipo" type="number" step="0.01" value="${p.advanceReceived}"></div>
+			<div><label>Nº de avances/planillas</label><br><input id="proj_num" type="number" min="1" value="${p.numAdvances}"></div>
+		</div>
+		<div id="advancesList" style="margin-top:12px"></div>
+		<h4>Retenciones (editables — en decimales, ej: 0.02 = 2%)</h4>
+		<div class="row">
+			<div><label>Ret. fuente bienes</label><br><input id="ret_rf_bienes" type="number" step="0.0001" value="${p.retenciones.rf_bienes}"></div>
+			<div><label>Ret. fuente servicios</label><br><input id="ret_rf_servicios" type="number" step="0.0001" value="${p.retenciones.rf_servicios}"></div>
+			<div><label>Ret. IVA bienes</label><br><input id="ret_iva_bienes" type="number" step="0.0001" value="${p.retenciones.iva_bienes}"></div>
+			<div><label>Ret. IVA servicios</label><br><input id="ret_iva_servicios" type="number" step="0.0001" value="${p.retenciones.iva_servicios}"></div>
+			<div><label>IVA materiales</label><br><input id="ret_iva_materiales" type="number" step="0.0001" value="${p.retenciones.iva_materiales}"></div>
+			<div><label>IVA CIF/servicios</label><br><input id="ret_iva_cif" type="number" step="0.0001" value="${p.retenciones.iva_cif}"></div>
+		</div>
+		<div style="margin-top:8px">Avance acumulado: <b id="accumulated">0%</b></div>
+		<div class="controls"><button id="saveProject">Guardar datos</button></div>`;
+	container.appendChild(card);
+
+	function renderAdvances(){
+		const list=el('#advancesList'); list.innerHTML='<label><b>Planillas de avance:</b></label><br>';
+		p.advances.forEach((a,i)=>{
+			const wrap=document.createElement('div'); wrap.className='row'; wrap.style.marginTop='6px';
+			wrap.innerHTML=`<div><label>Avance #${i+1} (%)</label><br><input data-i="${i}" class="advPct" type="number" step="0.01" value="${a.pct}"></div><div><label>Fecha</label><br><input data-i="${i}" class="advDate" type="date" value="${a.date}"></div>`;
+			list.appendChild(wrap);
+		});
+	}
+	renderAdvances();
+	updateAccumulated();
+
+	el('#saveProject').onclick = function(){
+		p.name    = el('#proj_name').value;
+		p.client  = el('#proj_client').value;
+		p.contractValue   = n(el('#proj_value').value);
+		p.advanceReceived = n(el('#proj_anticipo').value);
+		p.retenciones.rf_bienes      = n(el('#ret_rf_bienes').value);
+		p.retenciones.rf_servicios   = n(el('#ret_rf_servicios').value);
+		p.retenciones.iva_bienes     = n(el('#ret_iva_bienes').value);
+		p.retenciones.iva_servicios  = n(el('#ret_iva_servicios').value);
+		p.retenciones.iva_materiales = n(el('#ret_iva_materiales').value);
+		p.retenciones.iva_cif        = n(el('#ret_iva_cif').value);
+
+		const newNum = n(el('#proj_num').value) || 1;
+		p.numAdvances = newNum;
+		const advEls = [...eAll('.advPct')];
+		if(advEls.length !== newNum){
+			const newAdv=[];
+			for(let i=0;i<newNum;i++){ const ex=p.advances[i]; newAdv.push({pct:ex?ex.pct:Math.round(100/newNum),date:ex?ex.date:new Date().toISOString().slice(0,10)}); }
+			p.advances=newAdv; renderAdvances();
+		} else {
+			advEls.forEach(inp=>{ p.advances[n(inp.dataset.i)].pct=n(inp.value); });
+			[...eAll('.advDate')].forEach(inp=>{ p.advances[n(inp.dataset.i)].date=inp.value; });
+		}
+		updateAccumulated();
+		alert('✅ Datos guardados correctamente');
+	};
+
+	function updateAccumulated(){
+		const sum = p.advances.reduce((s,a)=>s+n(a.pct),0);
+		el('#accumulated').textContent = sum.toFixed(2)+'%';
+		if(Math.abs(sum-100)>0.0001) el('#accumulated').style.color='var(--danger)';
+		else el('#accumulated').style.color='var(--success)';
+	}
+}
+
+// ============================================================
+// PÁGINA 2: PRESUPUESTO DE OBRA
+// ============================================================
+function renderBudget(container){
+	const card=document.createElement('div'); card.className='card';
+	card.innerHTML=`<h3>Presupuesto de Obra</h3>
+		<div class="controls"><button id="addRubro">+ Agregar rubro</button></div>
+		<div style="overflow:auto;max-height:400px;margin-top:8px">
+			<table id="rubrosTable">
+				<thead><tr><th>Código</th><th>Descripción</th><th>Tipo</th><th>Unidad</th><th>Cantidad</th><th>Precio U.</th><th>Total</th><th>IVA %</th><th>Total+IVA</th><th></th></tr></thead>
+				<tbody></tbody>
+			</table>
+		</div>
+		<div id="budgetTotals" style="margin-top:8px"></div>`;
+	container.appendChild(card);
+
+	function ivaByType(t){ return t==='MD'?state.project.retenciones.iva_materiales:(t==='CIF'?state.project.retenciones.iva_cif:0); }
+
+	function renderRows(){
+		const tbody=el('#rubrosTable tbody'); tbody.innerHTML='';
+		let totals={MD:0,MOD:0,CIF:0};
+		state.rubros.forEach((r,i)=>{
+			const total=n(r.qty)*n(r.price);
+			const ivaPct=ivaByType(r.type);
+			const totalIva=total*(1+ivaPct);
+			totals[r.type]=(totals[r.type]||0)+total;
+			const tr=document.createElement('tr');
+			tr.innerHTML=`
+				<td><input class="code" data-i="${i}" value="${r.code}"></td>
+				<td><input class="desc" data-i="${i}" value="${r.desc}"></td>
+				<td><select class="rtype" data-i="${i}">
+					<option ${r.type==='MD'?'selected':''}>MD</option>
+					<option ${r.type==='MOD'?'selected':''}>MOD</option>
+					<option ${r.type==='CIF'?'selected':''}>CIF</option>
+				</select></td>
+				<td><input class="unit" data-i="${i}" value="${r.unit}"></td>
+				<td><input class="qty" data-i="${i}" type="number" step="0.01" value="${r.qty}"></td>
+				<td><input class="price" data-i="${i}" type="number" step="0.01" value="${r.price}"></td>
+				<td class="right">${money(total)}</td>
+				<td class="right">${(ivaPct*100).toFixed(2)}%</td>
+				<td class="right">${money(totalIva)}</td>
+				<td><button class="ghost del" data-i="${i}">✕</button></td>`;
+			tbody.appendChild(tr);
+		});
+		eAll('#rubrosTable .qty').forEach(inp=>inp.onchange=onChRubro);
+		eAll('#rubrosTable .price').forEach(inp=>inp.onchange=onChRubro);
+		eAll('#rubrosTable .rtype').forEach(sel=>sel.onchange=onChRubro);
+		eAll('#rubrosTable .desc').forEach(inp=>inp.onchange=onChRubro);
+		eAll('#rubrosTable .code').forEach(inp=>inp.onchange=onChRubro);
+		eAll('#rubrosTable .del').forEach(b=>b.onclick=ev=>{state.rubros.splice(n(ev.target.dataset.i),1); renderRows();});
+		const payroll=state.employees.reduce((s,e)=>s+calcEmployee(e).costo,0);
+		el('#budgetTotals').innerHTML=`<div class="summary">
+			<div class="box">MD: ${money(totals.MD)}</div>
+			<div class="box">MOD (rubros): ${money(totals.MOD)}</div>
+			<div class="box">MOD (nómina): ${money(payroll)}</div>
+			<div class="box">CIF: ${money(totals.CIF)}</div>
+			<div class="box"><b>Gran Total: ${money(totals.MD+totals.MOD+totals.CIF+payroll)}</b></div>
+		</div>`;
+	}
+
+	function onChRubro(ev){
+		const i=n(ev.target.dataset.i); const r=state.rubros[i];
+		if(ev.target.classList.contains('qty'))   r.qty=n(ev.target.value);
+		if(ev.target.classList.contains('price'))  r.price=n(ev.target.value);
+		if(ev.target.classList.contains('rtype'))  r.type=ev.target.value;
+		if(ev.target.classList.contains('desc'))   r.desc=ev.target.value;
+		if(ev.target.classList.contains('code'))   r.code=ev.target.value;
+		renderRows();
+	}
+	el('#addRubro').onclick=()=>{state.rubros.push({code:'item'+(state.rubros.length+1),desc:'Nuevo rubro',type:'MD',unit:'und',qty:1,price:0}); renderRows();};
+	renderRows();
+}
+
+// ============================================================
+// PÁGINA 3: NÓMINA
+// ============================================================
+function renderPayroll(container){
+	const card=document.createElement('div'); card.className='card';
+	card.innerHTML=`<h3>Nómina / Rol de pagos</h3>
+		<div class="controls"><button id="addEmp">+ Agregar empleado</button></div>
+		<div style="overflow:auto;max-height:400px;margin-top:8px">
+			<table id="empTable">
+				<thead><tr>
+					<th>Nombre</th><th>Cargo</th><th>Tipo</th><th>Sueldo base</th>
+					<th>Ap. IESS 9.45%</th><th>Neto</th><th>13°</th><th>14°</th>
+					<th>Vacaciones</th><th>F.Reserva</th><th>Ap.Patronal</th>
+					<th>Tot.Ben.</th><th>Costo Total</th><th></th>
+				</tr></thead>
+				<tbody></tbody>
+			</table>
+		</div>
+		<div id="payrollTotals" style="margin-top:8px"></div>`;
+	container.appendChild(card);
+
+	function renderEmps(){
+		const tbody=el('#empTable tbody'); tbody.innerHTML='';
+		let totalCosto=0;
+		state.employees.forEach((emp,i)=>{
+			const c=calcEmployee(emp); totalCosto+=c.costo;
+			const tr=document.createElement('tr');
+			tr.innerHTML=`
+				<td><input class="ename" data-i="${i}" value="${emp.name}"></td>
+				<td><input class="erole" data-i="${i}" value="${emp.role}"></td>
+				<td><select class="etype" data-i="${i}">
+					<option ${emp.type==='MOD'?'selected':''}>MOD</option>
+					<option ${emp.type==='CIF'?'selected':''}>CIF</option>
+				</select></td>
+				<td><input class="esal" data-i="${i}" type="number" step="0.01" value="${emp.salary}"></td>
+				<td class="right">${money(c.aporte_personal)}</td>
+				<td class="right">${money(c.neto)}</td>
+				<td class="right">${money(c.dec3)}</td>
+				<td class="right">${money(c.dec4)}</td>
+				<td class="right">${money(c.vac)}</td>
+				<td class="right">${money(c.fondo)}</td>
+				<td class="right">${money(c.aporte_pat)}</td>
+				<td class="right">${money(c.total_ben)}</td>
+				<td class="right"><b>${money(c.costo)}</b></td>
+				<td><button class="ghost delEmp" data-i="${i}">✕</button></td>`;
+			tbody.appendChild(tr);
+		});
+		eAll('.delEmp').forEach(b=>b.onclick=ev=>{state.employees.splice(n(ev.target.dataset.i),1); renderEmps();});
+		eAll('.ename').forEach(inp=>inp.onchange=ev=>{state.employees[n(ev.target.dataset.i)].name=ev.target.value;});
+		eAll('.erole').forEach(inp=>inp.onchange=ev=>{state.employees[n(ev.target.dataset.i)].role=ev.target.value;});
+		eAll('.esal').forEach(inp=>inp.onchange=ev=>{state.employees[n(ev.target.dataset.i)].salary=n(ev.target.value); renderEmps();});
+		eAll('.etype').forEach(sel=>sel.onchange=ev=>{state.employees[n(ev.target.dataset.i)].type=ev.target.value; renderEmps();});
+		el('#payrollTotals').innerHTML=`<div class="summary"><div class="box"><b>Costo total nómina: ${money(totalCosto)}</b></div></div>`;
+	}
+	el('#addEmp').onclick=()=>{state.employees.push({name:'Nuevo',role:'',type:'MOD',salary:0}); renderEmps();};
+	renderEmps();
+}
+
+// ============================================================
+// PÁGINA 4: PLANILLAS DE AVANCE
+// ============================================================
+function renderPlanillas(container){
+	const card=document.createElement('div'); card.className='card';
+	card.innerHTML='<h3>Planillas de Avance</h3><div id="planillasTable"></div>';
+	container.appendChild(card);
+
+	const p=state.project; const ret=p.retenciones;
+	const totals=getTotalsByType();
+
+	let html=`<table><thead><tr>
+		<th>N°</th><th>Fecha</th><th>% Avance</th>
+		<th>Valor contrato</th><th>Valor a facturar</th>
+		<th>Anticipo aplicado</th><th>Retenciones</th><th>Líquido a recibir</th>
+	</tr></thead><tbody>`;
+
+	p.advances.forEach((adv,idx)=>{
+		const pctDecimal = n(adv.pct)/100;
+		const valorFact  = p.contractValue * pctDecimal;
+		const anticipoAplicado = idx===0 ? Math.min(p.advanceReceived, valorFact) : 0;
+		const goodsShare = totals.MD / (totals.MD+totals.MOD+totals.CIF||1);
+		const totalRet   = valorFact * goodsShare * ret.rf_bienes + valorFact * (1-goodsShare) * ret.rf_servicios;
+		const liquido    = valorFact - anticipoAplicado - totalRet;
+
+		const costsMD  = totals.MD  * pctDecimal;
+		const costsMOD = totals.MOD * pctDecimal;
+		const costsCIF = totals.CIF * pctDecimal;
+		const ivaMD    = costsMD  * ret.iva_materiales;
+		const ivaCIF   = costsCIF * ret.iva_cif;
+
+		html += `<tr>
+			<td>${idx+1}</td><td>${fmtDate(adv.date)}</td>
+			<td class="right"><b>${adv.pct}%</b></td>
+			<td class="right">${money(p.contractValue)}</td>
+			<td class="right">${money(valorFact)}</td>
+			<td class="right">${money(anticipoAplicado)}</td>
+			<td class="right">${money(totalRet)}</td>
+			<td class="right"><b>${money(liquido)}</b></td>
+		</tr>
+		<tr style="background:#f0f7ff">
+			<td colspan="8" class="small">
+				📦 <b>Costos planilla ${idx+1}:</b>
+				MD ${money(costsMD)} (IVA ${money(ivaMD)}) |
+				MOD ${money(costsMOD)} |
+				CIF ${money(costsCIF)} (IVA ${money(ivaCIF)}) |
+				<b>Total costos: ${money(costsMD+costsMOD+costsCIF)}</b> |
+				Total costos+IVA: ${money(costsMD+costsMOD+costsCIF+ivaMD+ivaCIF)}
+			</td>
+		</tr>`;
+	});
+	html += '</tbody></table>';
+	el('#planillasTable').innerHTML = html;
+}
+
+// ============================================================
+// PÁGINA 5: REPORTES
+// ============================================================
+function renderReports(container){
+	const card=document.createElement('div'); card.className='card';
+	card.innerHTML='<h3>Reportes</h3>';
+	container.appendChild(card);
+
+	const subTabNames = ['LIBRO DIARIO','MAYORIZACIÓN','WIP','ESTADO DE RESULTADOS','ESTADO DE SITUACIÓN'];
+	const subTabs = document.createElement('div'); subTabs.className='tabs';
+	subTabNames.forEach((t,i)=>{
+		const b=document.createElement('button'); b.className='tab'+(i===0?' active':'');
+		b.textContent=t; b.onclick=()=>{[...subTabs.children].forEach(x=>x.classList.remove('active')); b.classList.add('active'); renderSub(i);}; subTabs.appendChild(b);
+	});
+	card.appendChild(subTabs);
+	const subCont=document.createElement('div'); subCont.id='reportSub'; card.appendChild(subCont);
+	renderSub(0);
+}
+
+function renderSub(idx){
+	const sub=el('#reportSub'); sub.innerHTML='';
+	if(idx===0) renderLibroDiario(sub);
+	if(idx===1) renderMayorizacion(sub);
+	if(idx===2) renderWIP(sub);
+	if(idx===3) renderEstadoResultados(sub);
+	if(idx===4) renderBalance(sub);
+}
+
+// ---- LIBRO DIARIO ----
+function renderLibroDiario(root){
+	const entries = generateLedger();
+	let html=`<h4>Libro Diario</h4>
+		<table><thead><tr><th>Fecha</th><th>N°</th><th>Cuenta / Detalle</th><th class="right">Debe</th><th class="right">Haber</th></tr></thead><tbody>`;
+	let totalDebe=0, totalHaber=0;
+	entries.forEach(en=>{
+		html+=`<tr><td colspan="5" class="asiento-ref">— ${en.ref}</td></tr>`;
+		en.items.forEach(it=>{
+			const esHaber = !it.debe;
+			html+=`<tr>
+				<td>${fmtDate(en.date)}</td>
+				<td>${en.num}</td>
+				<td style="padding-left:${esHaber?'32px':'8px'}">${it.acc}</td>
+				<td class="right">${it.debe?money(it.debe):''}</td>
+				<td class="right">${it.haber?money(it.haber):''}</td>
+			</tr>`;
+			if(it.debe)  totalDebe  += n(it.debe);
+			if(it.haber) totalHaber += n(it.haber);
+		});
+		html+=`<tr><td colspan="5" style="background:#edf3fb;height:3px;padding:0"></td></tr>`;
+	});
+	html+=`</tbody><tfoot>
+		<tr style="background:#1a365d;color:#fff">
+			<th colspan="3">TOTALES</th>
+			<th class="right">${money(totalDebe)}</th>
+			<th class="right">${money(totalHaber)}</th>
+		</tr>
+	</tfoot></table>`;
+	const diff = Math.abs(totalDebe - totalHaber);
+	html += diff<0.05
+		? `<div style="margin-top:8px;color:var(--success);font-weight:bold">✅ Cuadrado: Debe = Haber</div>`
+		: `<div class="warn">⚠ Descuadre: Debe ${money(totalDebe)} ≠ Haber ${money(totalHaber)} (diferencia: ${money(diff)})</div>`;
+	root.innerHTML = html;
+}
+
+// ---- MAYORIZACIÓN ----
+function renderMayorizacion(root){
+	const entries = generateLedger();
+	const ACCOUNTS = [
+		'Bancos','Anticipo Clientes','Materiales Directos (MD)',
+		'Mano de Obra Directa (MOD)','CIF - Costos Indirectos de Fabricación',
+		'IVA en Compras 5%','IVA en Compras 15%','Obras en Construcción - WIP',
+		'Ingreso por Construcción','Costo de Ventas','Retenciones por cobrar'
+	];
+
+	// Normalizar nombres de cuenta
+	function mapAcc(name){
+		if(!name) return null;
+		const nm = name.toLowerCase();
+		if(nm==='bancos') return 'Bancos';
+		if(nm.includes('anticipo')) return 'Anticipo Clientes';
+		if(nm.includes('materiales directos')||nm==='md') return 'Materiales Directos (MD)';
+		if(nm.includes('mano de obra')||nm==='mod') return 'Mano de Obra Directa (MOD)';
+		if(nm.includes('cif')||nm.includes('costos indirectos')) return 'CIF - Costos Indirectos de Fabricación';
+		if(nm.includes('iva en compras 5')||(nm.includes('iva')&&nm.includes('5%'))) return 'IVA en Compras 5%';
+		if(nm.includes('iva en compras 15')||(nm.includes('iva')&&nm.includes('15%'))) return 'IVA en Compras 15%';
+		if(nm.includes('obras en construcción')||nm.includes('wip')) return 'Obras en Construcción - WIP';
+		if(nm.includes('ingreso')) return 'Ingreso por Construcción';
+		if(nm.includes('costo de ventas')) return 'Costo de Ventas';
+		if(nm.includes('retenciones')) return 'Retenciones por cobrar';
+		return null;
+	}
+
+	const mayor = {};
+	ACCOUNTS.forEach(a=>{ mayor[a]={debits:[],credits:[],totalDeb:0,totalCred:0}; });
+
+	entries.forEach(en=>{
+		en.items.forEach(it=>{
+			const key = mapAcc(it.acc);
+			if(!key) return;
+			if(!mayor[key]) mayor[key]={debits:[],credits:[],totalDeb:0,totalCred:0};
+			if(it.debe){
+				mayor[key].debits.push({date:en.date, ref:en.num, amt:n(it.debe)});
+				mayor[key].totalDeb += n(it.debe);
+			}
+			if(it.haber){
+				mayor[key].credits.push({date:en.date, ref:en.num, amt:n(it.haber)});
+				mayor[key].totalCred += n(it.haber);
+			}
+		});
+	});
+
+	let html = '<h4>Mayorización (Libro Mayor)</h4><div class="t-grid">';
+	let sumDeudor=0, sumAcreedor=0;
+
+	ACCOUNTS.forEach(acc=>{
+		const node = mayor[acc];
+		if(node.debits.length===0 && node.credits.length===0) return;
+		const saldo = node.totalDeb - node.totalCred;
+		if(saldo > 0.005) sumDeudor += saldo;
+		else if(saldo < -0.005) sumAcreedor += Math.abs(saldo);
+
+		html += `<div class="t-card">
+			<div class="t-title">${acc}</div>
+			<div class="t-body">
+				<div class="t-debe">
+					<div class="t-col-head">DEBE</div>`;
+		node.debits.forEach(d=>{ html+=`<div class="t-mov"><span>${fmtDate(d.date)} [${d.ref}]</span><span>${money(d.amt)}</span></div>`; });
+		html += `</div><div class="t-haber"><div class="t-col-head">HABER</div>`;
+		node.credits.forEach(c=>{ html+=`<div class="t-mov"><span>${fmtDate(c.date)} [${c.ref}]</span><span>${money(c.amt)}</span></div>`; });
+		html += `</div></div>
+			<div class="t-totales">
+				<div class="t-total-cell t-debe">Total Débitos:<br>${money(node.totalDeb)}</div>
+				<div class="t-total-cell t-haber">Total Créditos:<br>${money(node.totalCred)}</div>
+			</div>`;
+
+		if(Math.abs(saldo)<0.005) html+=`<div class="t-saldo saldo-cero">✓ Saldada</div>`;
+		else if(saldo>0)          html+=`<div class="t-saldo saldo-deudor">Saldo Deudor: ${money(saldo)}</div>`;
+		else                      html+=`<div class="t-saldo saldo-acreedor">Saldo Acreedor: ${money(Math.abs(saldo))}</div>`;
+
+		html += '</div>';
+	});
+	html += '</div>';
+
+	// Tabla resumen de saldos
+	html += `<h4 style="margin-top:16px">Resumen de Saldos</h4>
+		<table style="max-width:600px">
+			<thead><tr><th>Cuenta</th><th class="right">Saldo Deudor</th><th class="right">Saldo Acreedor</th></tr></thead>
+			<tbody>`;
+	ACCOUNTS.forEach(acc=>{
+		const node=mayor[acc];
+		if(node.debits.length===0&&node.credits.length===0) return;
+		const saldo=node.totalDeb-node.totalCred;
+		if(saldo>0.005)        html+=`<tr><td>${acc}</td><td class="right">${money(saldo)}</td><td></td></tr>`;
+		else if(saldo<-0.005)  html+=`<tr><td>${acc}</td><td></td><td class="right">${money(Math.abs(saldo))}</td></tr>`;
+		else                   html+=`<tr><td>${acc}</td><td class="right">—</td><td class="right">—</td></tr>`;
+	});
+	html += `</tbody>
+		<tfoot style="background:#1a365d;color:#fff">
+			<tr><th>TOTALES</th><th class="right">${money(sumDeudor)}</th><th class="right">${money(sumAcreedor)}</th></tr>
+		</tfoot></table>`;
+	const diff = Math.abs(sumDeudor-sumAcreedor);
+	html += diff<0.05
+		? `<div style="margin-top:8px;color:var(--success);font-weight:bold">✅ Partida doble verificada: Saldos Deudor = Acreedor</div>`
+		: `<div class="warn">⚠ Descuadre en saldos: Deudor ${money(sumDeudor)} vs Acreedor ${money(sumAcreedor)}</div>`;
+
+	root.innerHTML = html;
+}
+
+// ---- WIP ----
+function renderWIP(root){
+	const p=state.project; const totals=getTotalsByType();
+	let html=`<h4>WIP — Trabajo en Proceso (Work in Progress)</h4>
+		<table><thead><tr>
+			<th>N°</th><th>Fecha</th><th>%</th>
+			<th class="right">Costos planilla</th><th class="right">Costos acumulados</th>
+			<th class="right">Ingreso planilla</th><th class="right">Ingresos acumulados</th>
+			<th class="right">WIP (Costo − Ingreso)</th>
+		</tr></thead><tbody>`;
+	let accCost=0, accInc=0;
+	p.advances.forEach((adv,idx)=>{
+		const pctDecimal=n(adv.pct)/100;
+		const costoPlanilla=(totals.MD+totals.MOD+totals.CIF)*pctDecimal;
+		accCost+=costoPlanilla;
+		const ingresoPlanilla=p.contractValue*pctDecimal;
+		accInc+=ingresoPlanilla;
+		const wip=accCost-accInc;
+		html+=`<tr>
+			<td>${idx+1}</td><td>${fmtDate(adv.date)}</td><td class="right">${adv.pct}%</td>
+			<td class="right">${money(costoPlanilla)}</td>
+			<td class="right">${money(accCost)}</td>
+			<td class="right">${money(ingresoPlanilla)}</td>
+			<td class="right">${money(accInc)}</td>
+			<td class="right" style="font-weight:bold;color:${wip>0.5?'var(--danger)':wip<-0.5?'var(--success)':'inherit'}">${money(wip)}</td>
+		</tr>`;
+	});
+	html+=`</tbody></table>
+		<div class="muted small" style="margin-top:8px">
+			WIP positivo = costos > ingresos reconocidos (activo). 
+			WIP negativo = ingresos > costos (pasivo facturación en exceso).
+		</div>`;
+	root.innerHTML=html;
+}
+
+// ---- ESTADO DE RESULTADOS ----
+function renderEstadoResultados(root){
+	const ingresos   = state.project.contractValue;
+	const totals     = getTotalsByType();
+	const ivaMD5     = totals.MD  * state.project.retenciones.iva_materiales;
+	const ivaCIF15   = totals.CIF * state.project.retenciones.iva_cif;
+	const costoVentas = totals.MD + totals.MOD + totals.CIF; // sin IVA (el IVA es crédito fiscal)
+	const utilBruta  = ingresos - costoVentas;
+	const gastosOp   = n(state.report.operationalExpenses);
+	const utilOp     = utilBruta - gastosOp;
+	const partTrab   = utilOp > 0 ? utilOp * 0.15 : 0;
+	const utilAIR    = utilOp - partTrab;
+	const ir25       = utilAIR > 0 ? utilAIR * 0.25 : 0;
+	const utilNeta   = utilAIR - ir25;
+
+	root.innerHTML=`<h4>Estado de Resultados</h4>
+		<table style="max-width:480px">
+			<thead><tr><th>Concepto</th><th class="right">Valor</th></tr></thead>
+			<tbody>
+				<tr><td>Ingresos por construcción</td><td class="right">${money(ingresos)}</td></tr>
+				<tr><td>(-) Costo de ventas (MD+MOD+CIF)</td><td class="right">${money(costoVentas)}</td></tr>
+				<tr style="background:#e8f4fd"><td><b>Utilidad bruta</b></td><td class="right"><b>${money(utilBruta)}</b></td></tr>
+				<tr><td>(-) Gastos operativos
+					<input id="gastosOp" type="number" step="0.01" value="${gastosOp}" style="margin-left:8px;width:130px">
+					<button id="applyGastos" style="margin-left:4px;padding:4px 8px;font-size:12px">Aplicar</button>
+				</td><td class="right">${money(gastosOp)}</td></tr>
+				<tr style="background:#e8f4fd"><td><b>Utilidad operativa</b></td><td class="right"><b>${money(utilOp)}</b></td></tr>
+				<tr><td>(-) 15% participación trabajadores</td><td class="right">${money(partTrab)}</td></tr>
+				<tr><td>Utilidad antes de IR</td><td class="right">${money(utilAIR)}</td></tr>
+				<tr><td>(-) 25% impuesto a la renta</td><td class="right">${money(ir25)}</td></tr>
+				<tr style="background:#1a365d;color:#fff">
+					<td><b>UTILIDAD NETA</b></td><td class="right"><b>${money(utilNeta)}</b></td>
+				</tr>
+			</tbody>
+		</table>`;
+	el('#applyGastos').onclick=()=>{
+		state.report.operationalExpenses=n(el('#gastosOp').value);
+		renderEstadoResultados(root);
+	};
+}
+
+// ---- ESTADO DE SITUACIÓN ----
+function renderBalance(root){
+	const p = state.project;
+	const totals = getTotalsByType();
+	const ivaMD5  = totals.MD  * p.retenciones.iva_materiales;
+	const ivaCIF15 = totals.CIF * p.retenciones.iva_cif;
+	const costoVentas = totals.MD + totals.MOD + totals.CIF;
+	const ingresos = p.contractValue;
+	const utilBruta = ingresos - costoVentas;
+	const gastosOp  = n(state.report.operationalExpenses);
+	const utilOp    = utilBruta - gastosOp;
+	const partTrab  = utilOp>0?utilOp*0.15:0;
+	const utilAIR   = utilOp-partTrab;
+	const ir25      = utilAIR>0?utilAIR*0.25:0;
+	const utilNeta  = utilAIR-ir25;
+
+	// Bancos = anticipo + ingresos cobrados - costos pagados (incluyendo IVA pagado)
+	const goodsShare = totals.MD/(totals.MD+totals.MOD+totals.CIF||1);
+	const totalRet = ingresos*goodsShare*p.retenciones.rf_bienes + ingresos*(1-goodsShare)*p.retenciones.rf_servicios;
+	const ingresosEnBanco = ingresos - totalRet - p.advanceReceived; // anticipo ya estaba en banco
+	const egresosEnBanco  = costoVentas + ivaMD5 + ivaCIF15;
+	const bancos = p.advanceReceived + ingresosEnBanco - egresosEnBanco;
+	const retencionesCobrar = totalRet;
+
+	const totalActivo = bancos + ivaMD5 + ivaCIF15 + retencionesCobrar;
+	const totalPasivo = partTrab + ir25;
+	const totalPatrimonio = utilNeta;
+	const check = totalActivo - (totalPasivo + totalPatrimonio);
+
+	root.innerHTML=`<h4>Estado de Situación Financiera</h4>
+		<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+			<div class="card">
+				<h4 style="margin-top:0;color:var(--header)">ACTIVO</h4>
+				<div><i>Activo Corriente</i></div>
+				<table>
+					<tr><td>Bancos</td><td class="right">${money(bancos)}</td></tr>
+					<tr><td>IVA en compras 5%</td><td class="right">${money(ivaMD5)}</td></tr>
+					<tr><td>IVA en compras 15%</td><td class="right">${money(ivaCIF15)}</td></tr>
+					<tr><td>Retenciones por cobrar</td><td class="right">${money(retencionesCobrar)}</td></tr>
+					<tr style="background:#1a365d;color:#fff"><td><b>TOTAL ACTIVO</b></td><td class="right"><b>${money(totalActivo)}</b></td></tr>
+				</table>
+			</div>
+			<div class="card">
+				<h4 style="margin-top:0;color:var(--header)">PASIVO</h4>
+				<div><i>Pasivo Corriente</i></div>
+				<table>
+					<tr><td>15% trabajadores por pagar</td><td class="right">${money(partTrab)}</td></tr>
+					<tr><td>25% IR por pagar</td><td class="right">${money(ir25)}</td></tr>
+					<tr style="background:#1a365d;color:#fff"><td><b>TOTAL PASIVO</b></td><td class="right"><b>${money(totalPasivo)}</b></td></tr>
+				</table>
+			</div>
+			<div class="card">
+				<h4 style="margin-top:0;color:var(--header)">PATRIMONIO</h4>
+				<div><i>Resultados del período</i></div>
+				<table>
+					<tr><td>Utilidad del ejercicio</td><td class="right">${money(utilNeta)}</td></tr>
+					<tr style="background:#1a365d;color:#fff"><td><b>TOTAL PATRIMONIO</b></td><td class="right"><b>${money(totalPatrimonio)}</b></td></tr>
+				</table>
+			</div>
+		</div>
+		<div style="margin-top:12px;padding:10px;background:#f0f6ff;border-radius:6px">
+			<b>Verificación ecuación contable:</b>
+			Activo ${money(totalActivo)} = Pasivo + Patrimonio ${money(totalPasivo+totalPatrimonio)}
+			${Math.abs(check)<1?'<span class="success"> ✅ Ecuación cuadrada</span>':'<span class="warn"> ⚠ Diferencia: '+money(check)+'</span>'}
+		</div>`;
+}
+
+// ============================================================
+// ACCIONES GLOBALES
+// ============================================================
+el('#calcAll').onclick=()=>{
+	render();
+	const sum = state.project.advances.reduce((s,a)=>s+n(a.pct),0);
+	if(Math.abs(sum-100)>0.0001)
+		el('#warnings').innerHTML=`<div class="warn">⚠ Los porcentajes de avance suman ${sum.toFixed(2)}% (deben ser 100%)</div>`;
+};
+
+el('#exportJson').onclick=()=>{
+	const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+	const url=URL.createObjectURL(blob);
+	const a=document.createElement('a'); a.href=url; a.download='constructora_andina_export.json';
+	document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+};
+el('#importJson').onclick=()=>el('#importFile').click();
+el('#importFile').onchange=function(e){
+	const f=e.target.files[0]; if(!f) return;
+	const r=new FileReader(); r.onload=ev=>{
+		try{ Object.assign(state,JSON.parse(ev.target.result)); render(); alert('✅ Datos importados correctamente'); }
+		catch(err){ alert('❌ Error: JSON inválido'); }
+	}; r.readAsText(f);
+};
+
+// Render inicial
+render();
+</script>
+</body>
+</html>
